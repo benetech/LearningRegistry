@@ -1,8 +1,8 @@
-import json, logging, LRSignature, os, urllib2
+import json, logging, LRSignature, os, sys, traceback, urllib2
 from copy import deepcopy
 
 appName="latest_books"
-limit=2 #amount of books to get, increase to 250 for deployment
+limit=250 #amount of books to get, increase to 250 for deployment
 key="zftyt9h75pwxvcxqng534m3g" #change this to new key for final
 formatStr="/format/json"
 keyStr="?api_key="+key
@@ -14,8 +14,7 @@ base_url="https://api.bookshare.org/book"
 if os.path.exists(appName+".log"):
     f=open(appName+".log")
     rawDate=f.readline().split(" ")[0]
-    date=rawDate.replace("-", "")[:8]
-    date=str(date)
+    date=str(rawDate.replace("-", "")[:8]) #turn "mm-dd-yyyy, " into "mmddyyyy"
     f.close()
 else: #hard-code a date from which to start
     date="10192011"
@@ -71,16 +70,24 @@ def containsErrors(res, mode="bs", i=0):
             return True
     return False #no errors found
 
+def exceptionHandler(type, value, tb):
+    #used to override default exceptions so we can log them, even if we don't catch them
+    exc=traceback.format_exception(type, value, tb)
+    err="Uncaught Exception:\n"
+    err+="".join(line for line in exc)
+    logging.error(err)
+sys.excepthook=exceptionHandler
+
 #get the json of latest books:
 envelopes=0 #how many envelopes have been created
 url=base_url+"/search/since/"+date+formatStr+limitStr+keyStr
 #url=base_url+"/id/11111111"+formatStr+keyStr #used to force failure, for testing
 logging.info("retrieving booklist from "+url)
 req=urllib2.Request(url)
-try: res=urllib2.urlopen(req).read()
-except urllib2.URLError, e: logging.exception(e)
+res=urllib2.urlopen(req).read()
 res=json.loads(res) #pythonize json gotten from reading the url response
-containsErrors(res) #see if bookshare gave us an error, log it if it did
+if containsErrors(res): #no point in continuing, so exit
+    sys.exit(0)
 root=res["bookshare"]
 #for every book in the booklist, request its metadata using its id:
 for book in root["book"]["list"]["result"]:
@@ -89,9 +96,9 @@ for book in root["book"]["list"]["result"]:
     logging.info("Retrieving metadata for \""+book["title"]+"\" with url "+url)
     req=urllib2.Request(url)
     book=json.loads(urllib2.urlopen(req).read())
-    if containsErrors(book): continue
+    if containsErrors(book): continue #the function will log the errors, but we won't let one book stop the whole script, so skip it
     data=book["bookshare"]["book"]["metadata"]
-    logging.debug("\n"+str(data))
+    logging.debug("book data:\n"+str(data))
     #now see if the book is a textbook/educational material, skip it if it is not:
     if "Textbooks" not in data["category"] and "Educational Materials" not in data["category"]:
         logging.info("Skipping book since it is not in the right categories - it is in "+str(data["category"]))
