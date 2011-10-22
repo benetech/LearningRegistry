@@ -1,7 +1,7 @@
 import json, logging, LRSignature, os, sys, traceback, urllib2
 
 appName="latest_books"
-limit=int(sys.argv[1]) or 250 #amount of books to get, max 250 (see API docs)
+limit=int(sys.argv[1]) if len(sys.argv)>1 else 250 #amount of books to get, max 250 (see API docs)
 key="zftyt9h75pwxvcxqng534m3g" #change this to new key for final
 formatStr="/format/json"
 keyStr="?api_key="+key
@@ -32,7 +32,7 @@ fingerprint="3CFB2D1C02BB2C154D7849CB369EB2CEAC1E9E2F" #change this as well?
 keyLocations=["http://dl.dropbox.com/u/17005121/public_key.txt"] #change this, too?
 gpgBin="\"C:\\Program Files (x86)\\GNU\\GnuPG\\pub\\gpg.exe\"" #may be "program files" on 32 bit
 publishUrl="http://lrtest02.learningregistry.org/publish"
-passPhrase=sys.argv[2] or raw_input("Please enter your key passphrase:")
+passPhrase=sys.argv[2] if len(sys.argv)>1 else raw_input("Please enter your key passphrase:")
 signer=LRSignature.sign.Sign.Sign_0_21(privateKeyID=fingerprint, passphrase=passPhrase, publicKeyLocations=keyLocations, gpgbin=gpgBin)
 
 doc={"documents":[]}
