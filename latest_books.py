@@ -1,26 +1,30 @@
 import json, logging, LRSignature, os, sys, traceback, urllib2
-from copy import deepcopy
 
 appName="latest_books"
-limit=250 #amount of books to get, increase to 250 for deployment
+limit=int(sys.argv[1]) or 250 #amount of books to get, max 250 (see API docs)
 key="zftyt9h75pwxvcxqng534m3g" #change this to new key for final
 formatStr="/format/json"
 keyStr="?api_key="+key
 limitStr="/limit/"+str(limit)
 base_url="https://api.bookshare.org/book"
+base_book_url="http://www.bookshare.org"
 
 #get date of last job, if log file exists
 #this assumes that the date is the first word on the first line, in mm-dd-yyyy - if you change the logging datefmt, change this too!
 if os.path.exists(appName+".log"):
     f=open(appName+".log")
-    rawDate=f.readline().split(" ")[0]
+    fullDate=f.readline().split(", ")[:2]
+    rawDate=fullDate[0]
+    fullDate=", ".join([v for v in fullDate])
+    #rawDate=fullDate.split(" ")[0]
     date=str(rawDate.replace("-", "")[:8]) #turn "mm-dd-yyyy, " into "mmddyyyy"
     f.close()
 else: #hard-code a date from which to start
+    fullDate="never, or log file does not exist"
     date="10192011"
 
 logging.basicConfig(format='%(asctime)s, %(levelname)s: %(message)s', datefmt='%m-%d-%Y, %I:%M:%S%p', filename=appName+".log", filemode='w', level=logging.INFO)
-logging.info("Job started")
+logging.info("Job started. Last run was "+fullDate)
 
 path=r"c:\prog\bookshare\LearningRegistry" #path for signed file
 signedFileName="latest_books.signed.json"
@@ -28,32 +32,43 @@ fingerprint="3CFB2D1C02BB2C154D7849CB369EB2CEAC1E9E2F" #change this as well?
 keyLocations=["http://dl.dropbox.com/u/17005121/public_key.txt"] #change this, too?
 gpgBin="\"C:\\Program Files (x86)\\GNU\\GnuPG\\pub\\gpg.exe\"" #may be "program files" on 32 bit
 publishUrl="http://lrtest02.learningregistry.org/publish"
-passPhrase=raw_input("Please enter your key passphrase:")
+passPhrase=sys.argv[2] or raw_input("Please enter your key passphrase:")
 signer=LRSignature.sign.Sign.Sign_0_21(privateKeyID=fingerprint, passphrase=passPhrase, publicKeyLocations=keyLocations, gpgbin=gpgBin)
 
 doc={"documents":[]}
-#json of envelope to be written, in python form; each book goes into one of these:
-envelope={
-    "doc_type": "resource_data", 
-    "doc_version": "0.23.0",  #how do we determine this?
-    "resource_data_type": "metadata",
-    "active": True,
-    "TOS": {"submission_TOS": "http://www.learningregistry.org/tos/cc-by-3-0/v0-5/"},
-    "identity": {
-        "curator": "",
-        "owner": "",
-        "submitter": "Alex Hall",
-        "signer": "Alex Hall",
-        "submitter_type": "agent"
-    },
-    "resource_locator": None, #changes to be url of the book in the envelope
-    "keys": [],
-    "payload_placement": "inline",
-    "payload_schema": ["Bookshare API JSON (http://developer.bookshare.org)"],
-    #"payload_schema_locator": None,
-    "resource_data": None
-}
-signer.sign(envelope)
+
+def makeEnvelope(schema, data, url):
+    #schema is a string matching a key in the schemas dict below; data is the resource_data; url is the resource_locator
+    schemas={ #"schema": ("description", "url/dtd")
+        "bookshare":
+            ("Bookshare API JSON", "http://developer.bookshare.org/docs/read/api_overview/Request_and_Result_Formats"),
+        "otherstandard":
+            ("Some other standard", "http://www.somedomain.org/xml/dtd/...")
+    }
+    schema=schema.lower() #to avoid caps problems, all keys are lowercase, so make this lowercase too
+    #json of envelope to be written, in python form; each book goes into one of these:
+    envelope={
+        "doc_type": "resource_data", 
+        "doc_version": "0.23.0",  #how do we determine this?
+        "resource_data_type": "metadata",
+        "active": True,
+        "TOS": {"submission_TOS": "http://www.learningregistry.org/tos/cc-by-3-0/v0-5/"},
+        "identity": {
+            "curator": "",
+            "owner": "",
+            "submitter": "Alex Hall",
+            "signer": "Alex Hall",
+            "submitter_type": "agent"
+        },
+        "resource_locator": url,
+        "keys": [],
+        "payload_placement": "inline",
+        "payload_schema": [schemas[schema][0]],
+        "payload_schema_locator": schemas[schema][1],
+        "resource_data": data
+    }
+    signer.sign(envelope)
+    return envelope
 
 def containsErrors(res, mode="bs", i=0):
     #mode=="bs": check for Bookshare errors; else check for LR errors
@@ -79,10 +94,11 @@ def exceptionHandler(type, value, tb):
 sys.excepthook=exceptionHandler
 
 #get the json of latest books:
+#date="09012010" #use to force getting long booklist
 envelopes=0 #how many envelopes have been created
 url=base_url+"/search/since/"+date+formatStr+limitStr+keyStr
-#url=base_url+"/id/11111111"+formatStr+keyStr #used to force failure, for testing
-logging.info("retrieving booklist from "+url)
+#url=base_book_url+"/id/11111111"+formatStr+keyStr #used to force failure, for testing
+logging.info("retrieving booklist of books since "+rawDate+" from "+url)
 req=urllib2.Request(url)
 res=urllib2.urlopen(req).read()
 res=json.loads(res) #pythonize json gotten from reading the url response
@@ -104,10 +120,9 @@ for book in root["book"]["list"]["result"]:
         logging.info("Skipping book since it is not in the right categories - it is in "+str(data["category"]))
         continue
     logging.info("Placing book in envelope for uploading. Categories: "+str(data["category"]))
-    locator=base_url+"/browse/book/"+id
-    envelope["resource_locator"]=locator
-    envelope["resource_data"]=data #set book data for the envelope
-    doc["documents"].append(deepcopy(envelope)) #dicts are passed by reference, so no deepcopy means they all get the most recent book value!
+    url=base_book_url+"/browse/book/"+id
+    envelope=makeEnvelope("Bookshare", data, url)
+    doc["documents"].append(envelope)
     envelopes+=1
 
 #put "doc" in json, then write it to our output file
