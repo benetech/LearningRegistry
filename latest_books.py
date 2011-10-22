@@ -39,11 +39,11 @@ doc={"documents":[]}
 
 def makeEnvelope(schema, data, url):
     #schema is a string matching a key in the schemas dict below; data is the resource_data; url is the resource_locator
-    schemas={ #"schema": ("description", "url/dtd")
+    schemas={ #"schema": ("description", "url/dtd", data_transformer_function)
         "bookshare":
-            ("Bookshare API JSON", "http://developer.bookshare.org/docs/read/api_overview/Request_and_Result_Formats"),
+            ("Bookshare Book Metadata Response", "http://developer.bookshare.org/docs/read/api_overview/Request_and_Result_Formats", None),
         "otherstandard":
-            ("Some other standard", "http://www.somedomain.org/xml/dtd/...")
+            ("Some other standard", "http://www.somedomain.org/xml/dtd/...", None)
     }
     schema=schema.lower() #to avoid caps problems, all keys are lowercase, so make this lowercase too
     #json of envelope to be written, in python form; each book goes into one of these:
