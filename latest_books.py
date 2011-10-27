@@ -1,4 +1,5 @@
 import json, logging, LRSignature, os, sys, traceback, urllib2
+from copy import deepcopy
 
 appName="latest_books"
 limit=int(sys.argv[1]) if len(sys.argv)>1 else 250 #amount of books to get, max 250 (see API docs)
@@ -8,6 +9,7 @@ keyStr="?api_key="+key
 limitStr="/limit/"+str(limit)
 base_url="https://api.bookshare.org/book"
 base_book_url="http://www.bookshare.org"
+schemas=["bookshare", "dublincore"] #each string must match a key in the schemas dict in makeEnvelope(); only the strings in this list will generate envelopes of their type
 
 #get date of last job, if log file exists
 #this assumes that the date is the first word on the first line, in mm-dd-yyyy - if you change the logging datefmt, change this too!
@@ -37,15 +39,16 @@ signer=LRSignature.sign.Sign.Sign_0_21(privateKeyID=fingerprint, passphrase=pass
 
 doc={"documents":[]}
 
-def makeEnvelope(schema, data, url):
+def makeEnvelope(schema, data):
     #schema is a string matching a key in the schemas dict below; data is the resource_data; url is the resource_locator
     schemas={ #"schema": ("description", "url/dtd", data_transformer_function)
         "bookshare":
-            ("Bookshare Book Metadata Response", "http://developer.bookshare.org/docs/read/api_overview/Request_and_Result_Formats", None),
-        "otherstandard":
-            ("Some other standard", "http://www.somedomain.org/xml/dtd/...", None)
+            ("Bookshare Book Metadata Response", "http://developer.bookshare.org/docs/read/api_overview/Request_and_Result_Formats", mapper_bookshare),
+        "dublincore":
+            ("Dublin Core", "http://purl.org/dc/elements/1.1/", mapper_dublinCore)
     }
     schema=schema.lower() #to avoid caps problems, all keys are lowercase, so make this lowercase too
+    data=schemas[schema][2](data) #pass data to the schema's mapper function
     #json of envelope to be written, in python form; each book goes into one of these:
     envelope={
         "doc_type": "resource_data", 
@@ -60,7 +63,7 @@ def makeEnvelope(schema, data, url):
             "signer": "Alex Hall",
             "submitter_type": "agent"
         },
-        "resource_locator": url,
+        "resource_locator": data["url"],
         "keys": [],
         "payload_placement": "inline",
         "payload_schema": [schemas[schema][0]],
@@ -69,6 +72,42 @@ def makeEnvelope(schema, data, url):
     }
     signer.sign(envelope)
     return envelope
+
+#mapper functions:
+
+def mapper_bookshare(data):
+    #"url" isn't actually part of the api spec - I add it manually later in the script - so delete it
+    del data["url"]
+    return data
+
+def mapper_dublinCore(data):
+    #maps Bookshare json data ("data") to DC XML
+    formats={"daisy":"DAISY 3.0", "brf":"Braille-Ready Format"}
+    s="<?xml version=\"1.0\"?>\
+    <!DOCTYPE rdf:RDF PUBLIC \"-//DUBLIN CORE//DCMES DTD 2002/07/31//EN\"\
+        \"http://dublincore.org/documents/2002/07/31/dcmes-xml/dcmes-xml-dtd.dtd\">\
+    <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"\
+        xmlns:dc =\"http://purl.org/dc/elements/1.1/\">"
+    s+="<rdf:Description rdf:about=\""+data['url']+"\">"
+    s+="<dc:type>Text</dc:type>"
+    s+="<dc:identifier>"+data["isbn13"]+"</dc:identifier>"
+    s+="<dc:title>"+data["title"]+"</dc:title>"
+    for author in data["author"]:    s+="<dc:creator>"+author+"</dc:creator>"
+    for category in data["category"]:    s+="<dc:subject>"+category+"</dc:subject>"
+    for format in data["downloadFormat"]: s+="<dc:format>"+formats[format.lower()]+"</dc:format>"
+    for l in data["language"]:
+        l=l.split(" ")
+        l1=l[0].upper()[:2]
+        l2=l[1]
+        s+="<dc:language>"+l1+"-"+l2+"</dc:language>"
+    try: synopsis=data["completeSynopsis"]
+    except KeyError: synopsis=data["briefSynopsis"]
+    s+="<dc:description>"+synopsis+"</dc:description>"
+    s+="<dc:publisher>"+data["publisher"]+"</dc:publisher>"
+    s+="<dc:date>"+data["copyright"]+"</dc:date>"
+    s+="    </rdf:Description>\
+    </rdf:RDF>"
+    return s
 
 def containsErrors(res, mode="bs", i=0):
     #mode=="bs": check for Bookshare errors; else check for LR errors
@@ -94,8 +133,9 @@ def exceptionHandler(type, value, tb):
 sys.excepthook=exceptionHandler
 
 #get the json of latest books:
-#date="09012010" #use to force getting long booklist
+date="09012010" #use to force getting long booklist
 envelopes=0 #how many envelopes have been created
+enveloped=0 #how many books were put into envelopes - each book has multiple envelopes
 url=base_url+"/search/since/"+date+formatStr+limitStr+keyStr
 #url=base_book_url+"/id/11111111"+formatStr+keyStr #used to force failure, for testing
 logging.info("retrieving booklist of books since "+rawDate+" from "+url)
@@ -121,10 +161,12 @@ for book in root["book"]["list"]["result"]:
         continue
     logging.info("Placing book in envelope for uploading. Categories: "+str(data["category"]))
     url=base_book_url+"/browse/book/"+id
-    envelope=makeEnvelope("Bookshare", data, url)
-    doc["documents"].append(envelope)
-    envelopes+=1
-
+    data["url"]=url #not officially in bookshare data, but mappers need this url
+    for schema in schemas:
+        envelope=makeEnvelope(schema, deepcopy(data))
+        doc["documents"].append(envelope)
+        envelopes+=1
+    enveloped+=1
 #put "doc" in json, then write it to our output file
 doc_json=json.dumps(doc)
 #for final, probably don't need to write this file
@@ -143,6 +185,6 @@ if envelopes>0:
        if containsErrors(res, i):
             continue
        successes+=1
-    logging.info("Job completed, "+str(successes)+" of "+str(envelopes)+" envelopes successfully uploaded.")
+    logging.info("Job completed, Found "+str(enveloped)+" books to upload, each of which generated "+str(len(schemas))+" envelopes. Uploaded "+str(successes)+" of "+str(envelopes)+" envelopes successfully.")
 else:
     logging.info("No envelopes created, nothing to upload. Job completed.")
