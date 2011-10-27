@@ -1,15 +1,29 @@
-import json, logging, LRSignature, os, sys, traceback, urllib2
-from copy import deepcopy
+import hashlib, json, logging, LRSignature, os, sys, traceback, urllib, urllib2
 
 appName="latest_books"
 limit=int(sys.argv[1]) if len(sys.argv)>1 else 250 #amount of books to get, max 250 (see API docs)
 key="zftyt9h75pwxvcxqng534m3g" #change this to new key for final
+username="bksdemo1@gmail.com"
+username=urllib.quote_plus(username, safe='/') #take care of spaces and special chars
+password="nwho1blt"
+password_ready=urllib.quote(hashlib.md5(password).hexdigest())
+password_header={"X-password":password_ready}
+base_url="https://api.bookshare.org/book"
+base_book_url="http://www.bookshare.org"
 formatStr="/format/json"
 keyStr="?api_key="+key
 limitStr="/limit/"+str(limit)
-base_url="https://api.bookshare.org/book"
-base_book_url="http://www.bookshare.org"
+userStr="/for/"+username
 schemas=["bookshare", "dublincore"] #each string must match a key in the schemas dict in makeEnvelope(); only the strings in this list will generate envelopes of their type
+path=r"c:\prog\bookshare\LearningRegistry" #path for signed file
+signedFileName="latest_books.signed.json"
+fingerprint="3CFB2D1C02BB2C154D7849CB369EB2CEAC1E9E2F" #change this as well?
+keyLocations=["http://dl.dropbox.com/u/17005121/public_key.txt"] #change this, too?
+gpgBin="\"C:\\Program Files (x86)\\GNU\\GnuPG\\pub\\gpg.exe\"" #may be "program files" on 32 bit
+publishUrl="http://lrtest02.learningregistry.org/publish"
+passPhrase=sys.argv[2] if len(sys.argv)>1 else raw_input("Please enter your key passphrase:")
+signer=LRSignature.sign.Sign.Sign_0_21(privateKeyID=fingerprint, passphrase=passPhrase, publicKeyLocations=keyLocations, gpgbin=gpgBin)
+doc={"documents":[]}
 
 #get date of last job, if log file exists
 #this assumes that the date is the first word on the first line, in mm-dd-yyyy - if you change the logging datefmt, change this too!
@@ -28,19 +42,8 @@ else: #hard-code a date from which to start
 logging.basicConfig(format='%(asctime)s, %(levelname)s: %(message)s', datefmt='%m-%d-%Y, %I:%M:%S%p', filename=appName+".log", filemode='w', level=logging.INFO)
 logging.info("Job started. Last run was "+fullDate)
 
-path=r"c:\prog\bookshare\LearningRegistry" #path for signed file
-signedFileName="latest_books.signed.json"
-fingerprint="3CFB2D1C02BB2C154D7849CB369EB2CEAC1E9E2F" #change this as well?
-keyLocations=["http://dl.dropbox.com/u/17005121/public_key.txt"] #change this, too?
-gpgBin="\"C:\\Program Files (x86)\\GNU\\GnuPG\\pub\\gpg.exe\"" #may be "program files" on 32 bit
-publishUrl="http://lrtest02.learningregistry.org/publish"
-passPhrase=sys.argv[2] if len(sys.argv)>1 else raw_input("Please enter your key passphrase:")
-signer=LRSignature.sign.Sign.Sign_0_21(privateKeyID=fingerprint, passphrase=passPhrase, publicKeyLocations=keyLocations, gpgbin=gpgBin)
-
-doc={"documents":[]}
-
 def makeEnvelope(schema, data):
-    #schema is a string matching a key in the schemas dict below; data is the resource_data; url is the resource_locator
+    #schema is a string matching a key in the schemas dict below; data is the resource_data
     schemas={ #"schema": ("description", "url/dtd", data_transformer_function)
         "bookshare":
             ("Bookshare Book Metadata Response", "http://developer.bookshare.org/docs/read/api_overview/Request_and_Result_Formats", mapper_bookshare),
@@ -48,7 +51,7 @@ def makeEnvelope(schema, data):
             ("Dublin Core", "http://purl.org/dc/elements/1.1/", mapper_dublinCore)
     }
     schema=schema.lower() #to avoid caps problems, all keys are lowercase, so make this lowercase too
-    data=schemas[schema][2](data) #pass data to the schema's mapper function
+    transformedData=schemas[schema][2](data) #pass data to the schema's mapper function
     #json of envelope to be written, in python form; each book goes into one of these:
     envelope={
         "doc_type": "resource_data", 
@@ -63,12 +66,12 @@ def makeEnvelope(schema, data):
             "signer": "Alex Hall",
             "submitter_type": "agent"
         },
-        "resource_locator": data["url"],
+        "resource_locator": data["locator"],
         "keys": [],
         "payload_placement": "inline",
         "payload_schema": [schemas[schema][0]],
         "payload_schema_locator": schemas[schema][1],
-        "resource_data": data
+        "resource_data": transformedData
     }
     signer.sign(envelope)
     return envelope
@@ -76,9 +79,12 @@ def makeEnvelope(schema, data):
 #mapper functions:
 
 def mapper_bookshare(data):
-    #"url" isn't actually part of the api spec - I add it manually later in the script - so delete it
-    del data["url"]
-    return data
+    #"url" isn't actually part of the api spec - I add it manually later in the script - so don't copy it
+    bs_data={}
+    for k, v in data.iteritems():
+        if k=="locator": continue
+        bs_data[k]=v
+    return bs_data
 
 def mapper_dublinCore(data):
     #maps Bookshare json data ("data") to DC XML
@@ -88,7 +94,7 @@ def mapper_dublinCore(data):
         \"http://dublincore.org/documents/2002/07/31/dcmes-xml/dcmes-xml-dtd.dtd\">\
     <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"\
         xmlns:dc =\"http://purl.org/dc/elements/1.1/\">"
-    s+="<rdf:Description rdf:about=\""+data['url']+"\">"
+    s+="<rdf:Description rdf:about=\""+data["locator"]+"\">"
     s+="<dc:type>Text</dc:type>"
     s+="<dc:identifier>"+data["isbn13"]+"</dc:identifier>"
     s+="<dc:title>"+data["title"]+"</dc:title>"
@@ -130,16 +136,16 @@ def exceptionHandler(type, value, tb):
     err="Uncaught Exception:\n"
     err+="".join(line for line in exc)
     logging.error(err)
+
 sys.excepthook=exceptionHandler
 
 #get the json of latest books:
 date="09012010" #use to force getting long booklist
 envelopes=0 #how many envelopes have been created
 enveloped=0 #how many books were put into envelopes - each book has multiple envelopes
-url=base_url+"/search/since/"+date+formatStr+limitStr+keyStr
-#url=base_book_url+"/id/11111111"+formatStr+keyStr #used to force failure, for testing
+url=base_url+"/search/since/"+date+formatStr+limitStr+userStr+keyStr
 logging.info("retrieving booklist of books since "+rawDate+" from "+url)
-req=urllib2.Request(url)
+req=urllib2.Request(url, headers=password_header)
 res=urllib2.urlopen(req).read()
 res=json.loads(res) #pythonize json gotten from reading the url response
 if containsErrors(res): #no point in continuing, so exit
@@ -148,9 +154,9 @@ root=res["bookshare"]
 #for every book in the booklist, request its metadata using its id:
 for book in root["book"]["list"]["result"]:
     id=str(book['id'])
-    url=base_url+"/id/"+id+formatStr+keyStr
+    url=base_url+"/id/"+id+formatStr+userStr+keyStr
     logging.info("Retrieving metadata for \""+book["title"]+"\" with url "+url)
-    req=urllib2.Request(url)
+    req=urllib2.Request(url, headers=password_header)
     book=json.loads(urllib2.urlopen(req).read())
     if containsErrors(book): continue #the function will log the errors, but we won't let one book stop the whole script, so skip it
     data=book["bookshare"]["book"]["metadata"]
@@ -159,14 +165,14 @@ for book in root["book"]["list"]["result"]:
     if "Textbooks" not in data["category"] and "Educational Materials" not in data["category"]:
         logging.info("Skipping book since it is not in the right categories - it is in "+str(data["category"]))
         continue
-    logging.info("Placing book in envelope for uploading. Categories: "+str(data["category"]))
-    url=base_book_url+"/browse/book/"+id
-    data["url"]=url #not officially in bookshare data, but mappers need this url
+    logging.info("Making envelopes from this book\'s metadata. Categories: "+str(data["category"]))
+    locator=base_book_url+"/browse/book/"+id
+    data["locator"]=locator
     for schema in schemas:
-        envelope=makeEnvelope(schema, deepcopy(data))
+        envelope=makeEnvelope(schema, data)
         doc["documents"].append(envelope)
-        envelopes+=1
-    enveloped+=1
+        envelopes+=1 #number of envelopes created
+    enveloped+=1 #number of books that have had envelopes made, regardless of how many actual envelopes each book generates
 #put "doc" in json, then write it to our output file
 doc_json=json.dumps(doc)
 #for final, probably don't need to write this file
