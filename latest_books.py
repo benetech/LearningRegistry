@@ -1,4 +1,4 @@
-import hashlib, json, logging, LRSignature, os, sys, traceback, urllib, urllib2
+import getpass, hashlib, json, logging, LRSignature, os, sys, traceback, urllib, urllib2
 appName="latest_books"
 
 def getAppPath():
@@ -15,9 +15,9 @@ try:
 except (ImportError, KeyError): #either configobj isn't installed, or the conf file doesn't exist
     args=sys.argv
     username=args[1] if len(args)>1 else raw_input("Please enter your Bookshare username:")
-    password=args[2] if len(args)>1 else raw_input("Please enter your Bookshare password:")
+    password=args[2] if len(args)>1 else getpass.getpass("Please enter your Bookshare password:")
     limit=int(args[4]) if len(args)>1 else 250 #amount of books to get, max 250 (see API docs)
-    passPhrase=args[3] if len(args)>1 else raw_input("Please enter your key passphrase:")
+    passPhrase=args[3] if len(args)>1 else getpass.getpass("Please enter your key passphrase:")
     key=args[5] if len(args)>1 else raw_input("Please enter your Bookshare API key:")
 else:
     username=settings["bookshare_username"]
@@ -165,7 +165,7 @@ def exceptionHandler(type, value, tb):
 sys.excepthook=exceptionHandler
 
 #get the json of latest books:
-date="09012010" #use to force getting long booklist
+#date="09012010" #use to force getting long booklist
 envelopes=0 #how many envelopes have been created
 enveloped=0 #how many books were put into envelopes - each book has multiple envelopes
 url=base_url+"/search/since/"+date+formatStr+limitStr+userStr+keyStr
