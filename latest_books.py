@@ -1,13 +1,35 @@
 import hashlib, json, logging, LRSignature, os, sys, traceback, urllib, urllib2
-
 appName="latest_books"
-limit=int(sys.argv[1]) if len(sys.argv)>1 else 250 #amount of books to get, max 250 (see API docs)
-key="zftyt9h75pwxvcxqng534m3g" #change this to new key for final
-username="bksdemo1@gmail.com"
+
+def getAppPath():
+    """ This will get us the program's directory, even if we are frozen using py2exe
+    This is from http://www.py2exe.org/index.cgi/WhereAmI """
+    if hasattr(sys, "frozen"):
+        return os.path.dirname(unicode(sys.executable, sys.getfilesystemencoding( )))
+    return os.path.dirname(unicode(__file__, sys.getfilesystemencoding( )))
+
+try:
+    import configobj
+    config=configobj.ConfigObj(os.path.join(getAppPath(), appName+".conf"))
+    settings=config["settings"]
+except (ImportError, KeyError): #either configobj isn't installed, or the conf file doesn't exist
+    args=sys.argv
+    username=args[1] if len(args)>1 else raw_input("Please enter your Bookshare username:")
+    password=args[2] if len(args)>1 else raw_input("Please enter your Bookshare password:")
+    limit=int(args[4]) if len(args)>1 else 250 #amount of books to get, max 250 (see API docs)
+    passPhrase=args[3] if len(args)>1 else raw_input("Please enter your key passphrase:")
+    key=args[5] if len(args)>1 else raw_input("Please enter your Bookshare API key:")
+else:
+    username=settings["bookshare_username"]
+    password=settings["bookshare_password"]
+    limit=settings["bookshare_limit"]
+    key=settings["bookshare_key"]
+    passPhrase=settings["encryption_passphrase"]
+
 username=urllib.quote_plus(username, safe='/') #take care of spaces and special chars
-password="nwho1blt"
 password_ready=urllib.quote(hashlib.md5(password).hexdigest())
 password_header={"X-password":password_ready}
+logName=os.path.join(getAppPath(), appName+".log")
 base_url="https://api.bookshare.org/book"
 base_book_url="http://www.bookshare.org"
 formatStr="/format/json"
@@ -21,14 +43,13 @@ fingerprint="3CFB2D1C02BB2C154D7849CB369EB2CEAC1E9E2F" #change this as well?
 keyLocations=["http://dl.dropbox.com/u/17005121/public_key.txt"] #change this, too?
 gpgBin="\"C:\\Program Files (x86)\\GNU\\GnuPG\\pub\\gpg.exe\"" #may be "program files" on 32 bit
 publishUrl="http://lrtest02.learningregistry.org/publish"
-passPhrase=sys.argv[2] if len(sys.argv)>1 else raw_input("Please enter your key passphrase:")
 signer=LRSignature.sign.Sign.Sign_0_21(privateKeyID=fingerprint, passphrase=passPhrase, publicKeyLocations=keyLocations, gpgbin=gpgBin)
 doc={"documents":[]}
 
 #get date of last job, if log file exists
 #this assumes that the date is the first word on the first line, in mm-dd-yyyy - if you change the logging datefmt, change this too!
-if os.path.exists(appName+".log"):
-    f=open(appName+".log")
+if os.path.exists(logName):
+    f=open(logName)
     fullDate=f.readline().split(", ")[:2]
     rawDate=fullDate[0]
     fullDate=", ".join([v for v in fullDate])
@@ -39,7 +60,7 @@ else: #hard-code a date from which to start
     fullDate="never, or log file does not exist"
     date="10192011"
 
-logging.basicConfig(format='%(asctime)s, %(levelname)s: %(message)s', datefmt='%m-%d-%Y, %I:%M:%S%p', filename=appName+".log", filemode='w', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s, %(levelname)s: %(message)s', datefmt='%m-%d-%Y, %I:%M:%S%p', filename=logName, filemode='w', level=logging.INFO)
 logging.info("Job started. Last run was "+fullDate)
 
 def makeEnvelope(schema, data):
@@ -88,7 +109,10 @@ def mapper_bookshare(data):
 
 def mapper_dublinCore(data):
     #maps Bookshare json data ("data") to DC XML
-    formats={"daisy":"DAISY 3.0", "brf":"Braille-Ready Format"}
+    formats={
+        "daisy":"ANSI/NISO Z39.86-2005",
+        "brf":"Braille-Ready Format"
+    }
     s="<?xml version=\"1.0\"?>\
     <!DOCTYPE rdf:RDF PUBLIC \"-//DUBLIN CORE//DCMES DTD 2002/07/31//EN\"\
         \"http://dublincore.org/documents/2002/07/31/dcmes-xml/dcmes-xml-dtd.dtd\">\
@@ -100,7 +124,8 @@ def mapper_dublinCore(data):
     s+="<dc:title>"+data["title"]+"</dc:title>"
     for author in data["author"]:    s+="<dc:creator>"+author+"</dc:creator>"
     for category in data["category"]:    s+="<dc:subject>"+category+"</dc:subject>"
-    for format in data["downloadFormat"]: s+="<dc:format>"+formats[format.lower()]+"</dc:format>"
+    for format in data["downloadFormat"]:
+        if format in formats.keys(): s+="<dc:format>"+formats[format.lower()]+"</dc:format>"
     for l in data["language"]:
         l=l.split(" ")
         l1=l[0].upper()[:2]
