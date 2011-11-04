@@ -16,8 +16,8 @@ except (ImportError, KeyError): #either configobj isn't installed, or the conf f
     args=sys.argv
     username=args[1] if len(args)>1 else raw_input("Please enter your Bookshare username:")
     password=args[2] if len(args)>1 else getpass.getpass("Please enter your Bookshare password:")
-    limit=int(args[4]) if len(args)>1 else 250 #amount of books to get, max 250 (see API docs)
     passPhrase=args[3] if len(args)>1 else getpass.getpass("Please enter your key passphrase:")
+    limit=int(args[4]) if len(args)>1 else 250 #amount of books to get, max 250 (see API docs)
     key=args[5] if len(args)>1 else raw_input("Please enter your Bookshare API key:")
 else:
     username=settings["bookshare_username"]
@@ -165,10 +165,13 @@ def exceptionHandler(type, value, tb):
 sys.excepthook=exceptionHandler
 
 #get the json of latest books:
-#date="09012010" #use to force getting long booklist
+usingFakeDate=True
+if usingFakeDate:
+    date="09012011" #use to force getting long booklist
+    logging.info("Using fake date of Sep 01, 2011 to force retrieval of a longer booklist. Ignore the date on the next line of this log file.")
 envelopes=0 #how many envelopes have been created
 enveloped=0 #how many books were put into envelopes - each book has multiple envelopes
-url=base_url+"/search/since/"+date+formatStr+limitStr+userStr+keyStr
+url=base_url+"/search/since/"+date+"/page/4/"+formatStr+limitStr+userStr+keyStr
 logging.info("retrieving booklist of books since "+rawDate+" from "+url)
 req=urllib2.Request(url, headers=password_header)
 res=urllib2.urlopen(req).read()
