@@ -171,8 +171,9 @@ if usingFakeDate:
     logging.info("Using fake date of Sep 01, 2011 to force retrieval of a longer booklist. Ignore the date on the next line of this log file.")
 envelopes=0 #how many envelopes have been created
 enveloped=0 #how many books were put into envelopes - each book has multiple envelopes
-url=base_url+"/search/since/"+date+"/page/4/"+formatStr+limitStr+userStr+keyStr
-logging.info("retrieving booklist of books since "+rawDate+" from "+url)
+url=base_url+"/search/since/"+date+"/page/4"+formatStr+limitStr+userStr+keyStr
+logUrl=url.split("?")[0]
+logging.info("retrieving booklist of books since "+rawDate+" from "+logUrl)
 req=urllib2.Request(url, headers=password_header)
 res=urllib2.urlopen(req).read()
 res=json.loads(res) #pythonize json gotten from reading the url response
@@ -183,7 +184,8 @@ root=res["bookshare"]
 for book in root["book"]["list"]["result"]:
     id=str(book['id'])
     url=base_url+"/id/"+id+formatStr+userStr+keyStr
-    logging.info("Retrieving metadata for \""+book["title"]+"\" with url "+url)
+    logUrl=url.split("?")[0]
+    logging.info("Retrieving metadata for \""+book["title"]+"\" with url "+logUrl)
     req=urllib2.Request(url, headers=password_header)
     book=json.loads(urllib2.urlopen(req).read())
     if containsErrors(book): continue #the function will log the errors, but we won't let one book stop the whole script, so skip it
