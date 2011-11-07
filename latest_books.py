@@ -86,17 +86,27 @@ def makeEnvelope(schema, data):
         "identity": {
             "curator": "",
             "owner": "",
-            "submitter": "Alex Hall",
+            "submitter": "Bookshare",
             "signer": "Alex Hall",
             "submitter_type": "agent"
         },
         "resource_locator": data["locator"],
-        "keys": [],
+        "keys": ["Accessible", "AIM"],
         "payload_placement": "inline",
         "payload_schema": [schemas[schema][0]],
         "payload_schema_locator": schemas[schema][1],
         "resource_data": transformedData
     }
+    #add info to keys list:
+    for cat in data["category"]: envelope["keys"].append(cat)
+    for format in data["downloadFormat"]:
+        format=format.lower()
+        if "brf"==format:
+            envelope["keys"].append("BRF")
+            envelope["keys"].append("Braille-Ready Format")
+        if "daisy"==format:
+            envelope["keys"].append("DAISY")
+            envelope["keys"].append("ANSI/NISO Z39.86-2005")
     signer.sign(envelope)
     return envelope
 
@@ -168,7 +178,7 @@ def exceptionHandler(type, value, tb):
 sys.excepthook=exceptionHandler
 
 #get the json of latest books:
-usingFakeDate=True
+usingFakeDate=False #set to true to hard-code an old date
 if usingFakeDate:
     date="09012011" #use to force getting long booklist
     logging.info("Using fake date of Sep 01, 2011 to force retrieval of a longer booklist. Ignore the date on the next line of this log file.")
