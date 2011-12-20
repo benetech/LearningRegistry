@@ -126,31 +126,56 @@ def mapper_dublinCore(data):
         "daisy":"ANSI/NISO Z39.86-2005",
         "brf":"Braille-Ready Format"
     }
+    languageCodes={'English US':'eng', 'Spanish':'spa', 'Bulgarian':'bul', 'Arabic':'ara', 'Afrikaans':'afr', 'Cantonese':'yue', 'Chinese':'chi', 'Czech':'ces', 'Danish':'dan', 'Dutch':'dut', 'French':'fre', 'German':'ger', 'Gujarati':'guj', 'Hebrew':'heb', 'Hindi':'hin', 'Italian':'ita', 'Japanese':'jpn', 'Malayalam':'mal', 'Mandarin':'cmn', 'Marathi':'mar', 'Panjabi':'pan', 'Russian':'rus', 'Swedish':'sve', 'Tamil':'tam', 'Telugu':'tel', 'Turkish':'tur', 'Latin':'lat', 'Bengali':'ben', 'Portuguese':'por', 'Javanese':'jav', 'Korean':'kor', 'Vietnamese':'vie', 'Urdu':'urd', 'English Great Britain':'eng'}
+    try: isbn=str(data["isbn13"])
+    except KeyError: isbn=False
+    """
     s="<?xml version=\"1.0\"?>\
     <!DOCTYPE rdf:RDF PUBLIC \"-//DUBLIN CORE//DCMES DTD 2002/07/31//EN\"\
         \"http://dublincore.org/documents/2002/07/31/dcmes-xml/dcmes-xml-dtd.dtd\">\
     <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"\
         xmlns:dc =\"http://purl.org/dc/elements/1.1/\">"
-    s+="<rdf:Description rdf:about=\""+data["locator"]+"\">"
-    s+="<dc:type>Text</dc:type>"
-    s+="<dc:identifier>"+data["isbn13"]+"</dc:identifier>"
+    """
+    s="<nsdl_dc:nsdl_dc xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\
+        xmlns:dc=\"http://purl.org/dc/elements/1.1/\"\
+        xmlns:dct=\"http://purl.org/dc/terms/\"\
+        xmlns:ieee=\"http://www.ieee.org/xsd/LOMv1p0\"\
+        xmlns:nsdl_dc=\"http://ns.nsdl.org/nsdl_dc_v1.02/\"\
+        schemaVersion=\"1.02.020\"\
+        xsi:schemaLocation=\"http://ns.nsdl.org/nsdl_dc_v1.02/ http://ns.nsdl.org/schemas/nsdl_dc/nsdl_dc_v1.02.xsd\">"
+    #s+="<rdf:Description rdf:about=\""+data["locator"]+"\">"
+    s+="<dc:type xsi:type=\"dct:DCMIType\">Text</dc:type>"
+    s+="<dc:type xsi:type=\"nsdl_dc:NSDLType\">Instructional Material</dc:type>"
+    for cat in data["category"]:
+        if cat.lower()=="textbook": s+="<dc:type xsi:type=\"nsdl_dc:NSDLType\">Textbook</dc:type>"
+    s+="<dc:identifier xsi:type=\"dct:URI\">"+base_book_url+"/browse/book/"+str(data["contentId"])+"</dc:identifier>"
+    if isbn: s+="<dct:isFormatOf xsi:type=\"dct:URI\">urn:isbn:"+isbn+"></dct:isFormatOf>"
+    s+="<dct:accessRights xsi:type=\"nsdl_dc:NSDLAccess\">"
+    if data["freelyAvailable"]: s+="Free access"
+    elif not data["freelyAvailable"]: s+="Available by subscription"
+    s+="</dct:accessRights>"
     s+="<dc:title>"+data["title"]+"</dc:title>"
     for author in data["author"]:    s+="<dc:creator>"+author+"</dc:creator>"
     for category in data["category"]:    s+="<dc:subject>"+category+"</dc:subject>"
     for format in data["downloadFormat"]:
         if format in formats.keys(): s+="<dc:format>"+formats[format.lower()]+"</dc:format>"
     for l in data["language"]:
-        l=l.split(" ")
-        l1=l[0].upper()[:2]
-        l2=l[1]
-        s+="<dc:language>"+l1+"-"+l2+"</dc:language>"
+        try: lang=languageCodes[l]
+        except KeyError: logger.warn("The language \""+l+"\" was not found in the list of known languages; this language will not be included in this book\'s envelope.")
+        continue
+        s+="<dc:language>"+lang+"</dc:language>"
     try: synopsis=data["completeSynopsis"]
     except KeyError: synopsis=data["briefSynopsis"]
     s+="<dc:description>"+synopsis+"</dc:description>"
     s+="<dc:publisher>"+data["publisher"]+"</dc:publisher>"
     s+="<dc:date>"+data["copyright"]+"</dc:date>"
+    s+="<dct:dateCopyrighted>"+data["copyright"]+"</dct:dateCopyrighted>"
+    s+="<dc:rights>http://www.bookshare.org/_/aboutUs/legalInformation</dc:rights>"
+    """
     s+="    </rdf:Description>\
     </rdf:RDF>"
+    """
+    s+="</nsdl_dc:nsdl_dc>"
     return s
 
 def containsErrors(res, mode="bs", i=0):
@@ -185,7 +210,7 @@ if usingFakeDate:
 envelopes=0 #how many envelopes have been created
 enveloped=0 #how many books were put into envelopes - each book has multiple envelopes
 url=base_url+"/search/since/"+date+pageStr+formatStr+limitStr+userStr+keyStr
-logUrl=url.split("?")[0]
+logUrl=url.split("?")[0] #don't log the api key, so remove everything after the question mark
 logging.info("retrieving booklist of books since "+rawDate+" from "+logUrl)
 req=urllib2.Request(url, headers=password_header)
 res=urllib2.urlopen(req).read()
